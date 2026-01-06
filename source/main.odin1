@@ -1,0 +1,119 @@
+/*package main
+
+import log              "core:log"
+import linalg           "core:math/linalg"
+import cgltf            "vendor:cgltf"
+
+main :: proc () {
+    context.logger = log.create_console_logger()
+
+    file_path := cstring("assets/glb_cars/box.glb")
+
+    options := cgltf.options{}
+
+    data, res := cgltf.parse_file(options, file_path)
+    assert(res == .success)
+    defer cgltf.free(data)
+
+    res = cgltf.load_buffers(options, data, file_path)
+    assert(res == .success)
+
+    log.debug(data.nodes[0].mesh.primitives)
+}
+
+*/
+
+package main
+
+import "core:log"
+import "vendor:cgltf"
+
+main :: proc() {
+    // 1. Initialisation du logger (OBLIGATOIRE)
+    context.logger = log.create_console_logger()
+
+    file_path := cstring("assets/glb_cars/box.glb")
+    options := cgltf.options{}
+
+    data, result := cgltf.parse_file(options, file_path)
+    if result != .success {
+        // Utilisation de log.errorf pour les erreurs
+        log.errorf("Échec du parsing : %v", result)
+        return
+    }
+    defer cgltf.free(data)
+
+    result = cgltf.load_buffers(options, data, file_path)
+    if result != .success {
+        log.errorf("Échec du chargement des buffers : %v", result)
+        return
+    }
+
+    log.info("Fichier chargé avec succès. Analyse des meshes...")
+
+    for node in data.nodes {
+        if node.mesh != nil {
+            name := node.mesh.name != nil ? node.mesh.name : "Inconnu"
+            log.infof("Mesh trouvé : %s", name)
+            
+            for primitive, i in node.mesh.primitives {
+                log.infof("  -> Traitement de la primitive #%d", i)
+                extract_mesh_data(primitive)
+            }
+        }
+    }
+}
+
+extract_mesh_data :: proc(prim: cgltf.primitive) {
+    // --- 1. Extraction des Vertices (Positions) ---
+    for attribute in prim.attributes {
+        if attribute.type == .position {
+            accessor := attribute.data
+            count := accessor.count
+            
+            // On prépare un tableau de floats (3 floats par vertex)
+            float_count := count * 3
+            positions := make([]f32, float_count)
+            defer delete(positions)
+
+            // cgltf.accessor_unpack_floats convertit tout en f32 pour nous 
+            i := cgltf.accessor_unpack_floats(accessor, raw_data(positions), float_count)
+
+            log.infof("    Extraction de %d positions (Vertices)", count)
+            
+            // Affichage des 3 premiers pour vérifier
+            for i := 0; i < 3 && i < int(count); i += 1 {
+                idx := i * 3
+                log.debugf("      Pos[%d]: [%.2f, %.2f, %.2f]", 
+                    i, positions[idx], positions[idx+1], positions[idx+2])
+            }
+        }
+    }
+
+    // --- 2. Extraction des Indices (Triangles) ---
+    // Les indices sont stockés directement dans la primitive, pas dans les attributs [cite: 24]
+    if prim.indices != nil {
+        accessor := prim.indices
+        count := accessor.count
+
+        // On décide de tout convertir en u32 pour être tranquille, 
+        // même si le fichier contient des u16.
+        indices := make([]u32, count)
+        defer delete(indices)
+
+        // cgltf.accessor_unpack_indices fait la conversion automatique vers u32 
+        // Le 3ème argument est la taille de NOTRE type de destination (sizeof(u32) = 4 octets)
+        i := cgltf.accessor_unpack_indices(accessor, raw_data(indices), 4, count)
+
+        log.infof("    Extraction de %d indices", count)
+
+        // Affichage des premiers triangles (3 indices = 1 triangle)
+        for i := 0; i < 3 && i < int(count); i += 1 {
+            idx := i * 3
+            log.debugf("      Triangle[%d]: %d -> %d -> %d", 
+                i, indices[idx], indices[idx+1], indices[idx+2])
+        }
+    } else {
+        log.warn("    Aucun indice trouvé (Geometry non-indexée ?)")
+    }
+}
