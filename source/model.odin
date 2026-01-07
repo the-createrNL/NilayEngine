@@ -77,6 +77,11 @@ GpuVertex       :: struct {
     tex:    [2]f32,
 }
 
+MeshData        :: struct {
+    vertices:       []GpuVertex,
+    indices:        []u32
+}
+
 GpuMesh         :: struct {
     // Vertex Data
     vertex_buffer:  ^sdl.GPUBuffer,

@@ -2,12 +2,13 @@
 
 package main
 
-import  log          "core:log"
-import  mem          "core:mem"
-import  sdl          "vendor:sdl3"
-import  os           "core:os"
-import  ln           "core:math/linalg"
-import  stbimg       "vendor:stb/image"
+import  log         "core:log"
+import  mem         "core:mem"
+import  sdl         "vendor:sdl3"
+import  os          "core:os"
+import  ln          "core:math/linalg"
+import  stbimg      "vendor:stb/image"
+import  cgltf       "vendor:cgltf"
 
 init_sdl                :: proc (conx: ^Context, init_flags: sdl.InitFlags = {.VIDEO}) {
     ok: bool = sdl.Init(init_flags)
@@ -48,7 +49,7 @@ create_device           :: proc (conx: ^Context) {
 
     ok := sdl.ClaimWindowForGPUDevice(conx.device.device, conx.window.window)
 
-    ok = sdl.SetGPUSwapchainParameters(conx.device.device, conx.window.window, .SDR, .VSYNC)
+    ok = sdl.SetGPUSwapchainParameters(conx.device.device, conx.window.window, .SDR, .IMMEDIATE)
 }
 
 create_gpipeline        :: proc (conx: ^Context) {
@@ -91,19 +92,29 @@ create_gpipeline        :: proc (conx: ^Context) {
         num_vertex_attributes           = u32(len   (list_vattribs)),
     }
 
+    rasterizer_state: sdl.GPURasterizerState = {
+        fill_mode = .FILL,
+        cull_mode = .BACK,
+        front_face = .COUNTER_CLOCKWISE
+    }
+
     gpipeline_info: sdl.GPUGraphicsPipelineCreateInfo = {
         vertex_shader               = vshader,
         fragment_shader             = fshader,
         target_info                 = target_info,
         depth_stencil_state         = depth_state,
         vertex_input_state          = vertex_input_state,
+        rasterizer_state            = rasterizer_state,
     }
 
     conx.gpipeline.pipeline = sdl.CreateGPUGraphicsPipeline(conx.device.device, gpipeline_info)
 }
 
 create_gpumeshs         :: proc (conx: ^Context) {
-    conx.meshmap.mesh_map["cube"] = load_mesh(conx, "", "assets/images/tex4x4.png")
+    conx.meshmap.mesh_map["cube"] = load_mesh(conx, "assets/glb_cars/box.glb", "assets/glb_cars/Textures/colormap.png")
+    conx.meshmap.mesh_map["cone-flat"] = load_mesh(conx, "assets/glb_cars/cone-flat.glb", "assets/glb_cars/Textures/colormap.png")
+    conx.meshmap.mesh_map["taxi"] = load_mesh(conx, "assets/glb_cars/taxi.glb", "assets/glb_cars/Textures/colormap.png")
+    conx.meshmap.mesh_map["van"] = load_mesh(conx, "assets/glb_cars/van.glb", "assets/glb_cars/Textures/colormap.png")
 }
 
 begin_drawing           :: proc (conx: ^Context) -> DrawContext {
@@ -174,7 +185,18 @@ begin_gameloop          :: proc (conx: ^Context) {
         drawconx := begin_drawing(conx); {
 
             sdl.PushGPUVertexUniformData(drawconx.command_buffer, 0, &conx.cam.uniform, size_of(vUniform_cam))
+
+            vunif_mdl.model = ln.matrix4_translate_f32({0, 0, 0})
             draw_gpumesh(&drawconx, &conx.meshmap.mesh_map["cube"], &vunif_mdl)
+
+            vunif_mdl.model = ln.matrix4_translate_f32({1, 0, 0})
+            draw_gpumesh(&drawconx, &conx.meshmap.mesh_map["cone-flat"], &vunif_mdl)
+
+            vunif_mdl.model = ln.matrix4_translate_f32({2, 0, 0})
+            draw_gpumesh(&drawconx, &conx.meshmap.mesh_map["taxi"], &vunif_mdl)
+
+            vunif_mdl.model = ln.matrix4_translate_f32({3, 0, 0})
+            draw_gpumesh(&drawconx, &conx.meshmap.mesh_map["van"], &vunif_mdl)
 
         }; end_drawing(conx, drawconx)
     }
@@ -272,47 +294,27 @@ load_mesh               :: proc (conx: ^Context, mesh_path: cstring, texture_pat
         })
     }
 
-    vertices := []GpuVertex{
-        // Face Avant (Z+)
-        { pos = {-0.5, -0.5,  0.5}, tex = {0, 1} }, // 0
-        { pos = { 0.5, -0.5,  0.5}, tex = {1, 1} }, // 1
-        { pos = { 0.5,  0.5,  0.5}, tex = {1, 0} }, // 2
-        { pos = {-0.5,  0.5,  0.5}, tex = {0, 0} }, // 3
-        // Face Arrière (Z-)
-        { pos = { 0.5, -0.5, -0.5}, tex = {0, 1} }, // 4
-        { pos = {-0.5, -0.5, -0.5}, tex = {1, 1} }, // 5
-        { pos = {-0.5,  0.5, -0.5}, tex = {1, 0} }, // 6
-        { pos = { 0.5,  0.5, -0.5}, tex = {0, 0} }, // 7
-    }
-
-    indices := []u32{
-        0, 1, 2, 2, 3, 0,       // Avant
-        4, 5, 6, 6, 7, 4,       // Arrière
-        3, 2, 7, 7, 6, 3,       // Haut
-        1, 0, 5, 5, 4, 1,       // Bas
-        5, 0, 3, 3, 6, 5,       // Gauche
-        1, 4, 7, 7, 2, 1,       // Droite
-    }
+    mesh_data: MeshData = load_vertices(mesh_path)
 
     // A. Vertex Buffer
-    mesh.vertex_count = u32(len(vertices))
-    v_size := u32(len(vertices) * size_of(GpuVertex))
+    mesh.vertex_count = u32(len(mesh_data.vertices))
+    v_size := u32(len(mesh_data.vertices) * size_of(GpuVertex))
     
     mesh.vertex_buffer = sdl.CreateGPUBuffer(conx.device.device, {
         usage = {.VERTEX},
         size  = v_size,
     })
-    uploadto_gpubuffer(conx, mesh.vertex_buffer, raw_data(vertices), v_size)
+    uploadto_gpubuffer(conx, mesh.vertex_buffer, raw_data(mesh_data.vertices), v_size)
 
     // B. Index Buffer
-    mesh.index_count = u32(len(indices))
-    i_size := u32(len(indices) * size_of(u32))
+    mesh.index_count = u32(len(mesh_data.indices))
+    i_size := u32(len(mesh_data.indices) * size_of(u32))
     
     mesh.index_buffer = sdl.CreateGPUBuffer(conx.device.device, {
         usage = {.INDEX},
         size  = i_size,
     })
-    uploadto_gpubuffer(conx, mesh.index_buffer, raw_data(indices), i_size)
+    uploadto_gpubuffer(conx, mesh.index_buffer, raw_data(mesh_data.indices), i_size)
 
     return
 }
@@ -464,13 +466,13 @@ update_mouse            :: proc (conx: ^Context) {
 
 init_cam                :: proc (conx: ^Context) {
     conx.cam = GpuCamera {
-        pos                 = {0.0, 0.0, 0.0},
+        pos                 = {0.0, 0.0, -5.0},
         dir                 = {0.0, 0.0, 0.0},
         front               = {0.0, 0.0, 0.0},
         right               = {0.0, 0.0, 0.0},
         local_up            = {0.0, 0.0, 0.0},
         speed               = {0.003, 0.003},
-        speed_move          = {0.2, 0.2, 0.2},
+        speed_move          = {5.0, 5.0, 5.0},
         yaw                 = f32(0.0),
         pitch               = f32(0.0),
         max_pitch           = f32(ln.PI / 2) - 0.01,
@@ -522,7 +524,7 @@ update_cam              :: proc (conx: ^Context) {
         move_dir = ln.normalize(move_dir)
         
         // 3. Et MAINTENANT on applique la vitesse
-        conx.cam.pos += move_dir * conx.cam.speed_move
+        conx.cam.pos += move_dir * conx.cam.speed_move * f32(conx.time.delta_s)
     }
 
     conx.cam.uniform.view       = ln.matrix4_look_at_f32(
@@ -563,6 +565,65 @@ create_vinput_state     :: proc () -> (sdl.GPUVertexBufferDescription, sdl.GPUVe
     }
 
     return vbuffer_desc, vattrib_pos, vattrib_tex
+}
+
+load_vertices :: proc(file_path: cstring) -> (mesh_data: MeshData) {
+    options := cgltf.options{}
+    data, result := cgltf.parse_file(options, file_path)
+    
+    // Toujours vérifier le parsing
+    if result != .success {
+        return 
+    }
+    defer cgltf.free(data)
+
+    result = cgltf.load_buffers(options, data, file_path)
+    if result != .success {
+        return
+    }
+
+    primitive := data.meshes[0].primitives[0]
+    
+    pos_acc: ^cgltf.accessor
+    tex_acc: ^cgltf.accessor
+    idx_acc: ^cgltf.accessor = primitive.indices
+
+    // CORRECTION 1 : On itère directement sur le slice 'attributes'
+    // Pas besoin de 'attributes_count' ni d'index 'i'
+    for attrib in primitive.attributes {
+        if attrib.type == .position do pos_acc = attrib.data
+        if attrib.type == .texcoord do tex_acc = attrib.data
+    }
+
+    assert(pos_acc != nil, "Manque Position")
+    assert(idx_acc != nil, "Manque Index")
+
+    count_v := int(pos_acc.count)
+    count_i := int(idx_acc.count)
+
+    mesh_data.vertices = make([]GpuVertex, count_v)
+    mesh_data.indices  = make([]u32, count_i)
+
+    for i in 0..<count_v {
+        p: [3]f32
+        // CORRECTION 2 : On ignore le retour booléen avec '_ ='
+        _ = cgltf.accessor_read_float(pos_acc, uint(i), &p[0], 3)
+        mesh_data.vertices[i].pos = p
+
+        if tex_acc != nil {
+            t: [2]f32
+            _ = cgltf.accessor_read_float(tex_acc, uint(i), &t[0], 2)
+            mesh_data.vertices[i].tex = t
+        }
+    }
+
+    for i in 0..<count_i {
+        // accessor_read_index retourne directement la valeur, pas un code d'erreur
+        idx := cgltf.accessor_read_index(idx_acc, uint(i))
+        mesh_data.indices[i] = u32(idx)
+    }
+
+    return
 }
 
 load_image :: proc(file_path: cstring, desired_channels: i32 = 4, flip: bool = false) -> (img: ImageDesc) {
