@@ -1,13 +1,15 @@
-// modeldf.odin
+// file : modeldf.odin
 
 package main
 
-import log          "core:log"
-import sdl          "vendor:sdl3"
-import os           "core:os"
-import ln           "core:math/linalg"
+import  log          "core:log"
+import  mem          "core:mem"
+import  sdl          "vendor:sdl3"
+import  os           "core:os"
+import  ln           "core:math/linalg"
+import  stbimg       "vendor:stb/image"
 
-init_sdl            :: proc (conx: ^Context, init_flags: sdl.InitFlags = {.VIDEO}) {
+init_sdl                :: proc (conx: ^Context, init_flags: sdl.InitFlags = {.VIDEO}) {
     ok: bool = sdl.Init(init_flags)
 
     assert(ok, string(sdl.GetError()))
@@ -15,7 +17,7 @@ init_sdl            :: proc (conx: ^Context, init_flags: sdl.InitFlags = {.VIDEO
     sdl.SetLogPriorities(.VERBOSE)
 }
 
-create_window       :: proc (conx: ^Context) {
+create_window           :: proc (conx: ^Context) {
     conx.window.title   = cstring("mouha window")
     conx.window.size    = {800, 580}
     conx.window.aspect  = f32(conx.window.size.x) / f32(conx.window.size.y)
@@ -33,7 +35,7 @@ create_window       :: proc (conx: ^Context) {
     set_mouse_mode(conx, .fps)
 }
 
-create_device       :: proc (conx: ^Context) {
+create_device           :: proc (conx: ^Context) {
     conx.device.format_flags = {.SPIRV}
 
     conx.device.device = sdl.CreateGPUDevice(
@@ -49,7 +51,7 @@ create_device       :: proc (conx: ^Context) {
     ok = sdl.SetGPUSwapchainParameters(conx.device.device, conx.window.window, .SDR, .VSYNC)
 }
 
-create_gpipeline    :: proc (conx: ^Context) {
+create_gpipeline        :: proc (conx: ^Context) {
     create_depthtexture(conx)
 
     conx.gpipeline.vshad_code_path = cstring("shaders/compiled_spirv/posonly.vert.spirv")
@@ -100,7 +102,11 @@ create_gpipeline    :: proc (conx: ^Context) {
     conx.gpipeline.pipeline = sdl.CreateGPUGraphicsPipeline(conx.device.device, gpipeline_info)
 }
 
-begin_drawing       :: proc (conx: ^Context) -> DrawContext {
+create_gpumeshs         :: proc (conx: ^Context) {
+    conx.meshmap.mesh_map["cube"] = load_mesh(conx, "", "assets/images/tex4x4.png")
+}
+
+begin_drawing           :: proc (conx: ^Context) -> DrawContext {
     command_buffer  := sdl.AcquireGPUCommandBuffer(conx.device.device)
 
     texture: ^sdl.GPUTexture
@@ -128,25 +134,23 @@ begin_drawing       :: proc (conx: ^Context) -> DrawContext {
     return drawconx
 }
 
-end_drawing         :: proc (conx: ^Context, #by_ptr drawconx: DrawContext) {
+end_drawing             :: proc (conx: ^Context, #by_ptr drawconx: DrawContext) {
     sdl.EndGPURenderPass(drawconx.render_pass)
     ok := sdl.SubmitGPUCommandBuffer(drawconx.command_buffer)
 }
 
-update_context      :: proc (conx: ^Context) {
+update_context          :: proc (conx: ^Context) {
     update_time         (conx)
     update_mouse        (conx)
     update_cam          (conx)
 }
 
-begin_gameloop      :: proc (conx: ^Context) {
+begin_gameloop          :: proc (conx: ^Context) {
     gameloop := bool(true)
 
     vunif_mdl: vUniform_mdl = {
         model       = ln.MATRIX4F32_IDENTITY,
     }
-
-
 
     for gameloop {
         event: sdl.Event
@@ -168,15 +172,15 @@ begin_gameloop      :: proc (conx: ^Context) {
         update_context(conx)
 
         drawconx := begin_drawing(conx); {
-            
+
             sdl.PushGPUVertexUniformData(drawconx.command_buffer, 0, &conx.cam.uniform, size_of(vUniform_cam))
-            vunif_mdl.model = ln.matrix4_translate_f32({0, 0, 0}) * ln.matrix4_rotate_f32(f32(conx.time.time_s), {3, 241, 241})
-            sdl.PushGPUVertexUniformData(drawconx.command_buffer, 1, &vunif_mdl, size_of(vunif_mdl))
-            sdl.DrawGPUPrimitives(drawconx.render_pass, 36, 1, 0, 0)
+            draw_gpumesh(&drawconx, &conx.meshmap.mesh_map["cube"], &vunif_mdl)
 
         }; end_drawing(conx, drawconx)
     }
 }
+
+begin_test :: proc (conx: ^Context) {}
 
 
 
@@ -224,6 +228,156 @@ create_shaders          :: proc (conx: ^Context) -> (vshader: ^sdl.GPUShader, fs
     return
 }
 
+draw_gpumesh            :: proc (drawconx: ^DrawContext, mesh: ^GpuMesh, model: ^vUniform_mdl) {
+    // bind vertex buffer
+    sdl.BindGPUVertexBuffers(drawconx.render_pass, 0, &sdl.GPUBufferBinding{
+        buffer          = mesh.vertex_buffer, 
+        offset          = u32(0),
+    }, 1)
+
+    // bind index buffer
+    sdl.BindGPUIndexBuffer(drawconx.render_pass, sdl.GPUBufferBinding{
+        buffer          = mesh.index_buffer,
+        offset          = u32(0),
+    }, ._32BIT)
+
+    // bind fragment sampler
+    sdl.BindGPUFragmentSamplers(drawconx.render_pass, 0, &sdl.GPUTextureSamplerBinding{
+        texture         = mesh.texture,
+        sampler         = mesh.sampler,
+    }, 1)
+
+    // bind vertex uniform
+    sdl.PushGPUVertexUniformData(drawconx.command_buffer, 1, model, size_of(vUniform_mdl))
+
+    // draw indexed primitive
+    sdl.DrawGPUIndexedPrimitives(drawconx.render_pass, mesh.index_count, 1, 0, 0, 0)
+}
+
+load_mesh               :: proc (conx: ^Context, mesh_path: cstring, texture_path: cstring) -> (mesh: GpuMesh) {
+    image_desc := load_image(texture_path)
+    
+    if image_desc.list_pixels != nil {
+        defer stbimg.image_free(image_desc.list_pixels)
+
+        mesh.texture = crt_gputexr_sampler(conx, image_desc)
+        uploadto_gputexture(conx, mesh.texture, image_desc)
+        
+        mesh.sampler = sdl.CreateGPUSampler(conx.device.device, {
+            min_filter     = .NEAREST, // Pixel art style
+            mag_filter     = .NEAREST,
+            mipmap_mode    = .NEAREST,
+            address_mode_u = .CLAMP_TO_EDGE,
+            address_mode_v = .CLAMP_TO_EDGE,
+        })
+    }
+
+    vertices := []GpuVertex{
+        // Face Avant (Z+)
+        { pos = {-0.5, -0.5,  0.5}, tex = {0, 1} }, // 0
+        { pos = { 0.5, -0.5,  0.5}, tex = {1, 1} }, // 1
+        { pos = { 0.5,  0.5,  0.5}, tex = {1, 0} }, // 2
+        { pos = {-0.5,  0.5,  0.5}, tex = {0, 0} }, // 3
+        // Face Arrière (Z-)
+        { pos = { 0.5, -0.5, -0.5}, tex = {0, 1} }, // 4
+        { pos = {-0.5, -0.5, -0.5}, tex = {1, 1} }, // 5
+        { pos = {-0.5,  0.5, -0.5}, tex = {1, 0} }, // 6
+        { pos = { 0.5,  0.5, -0.5}, tex = {0, 0} }, // 7
+    }
+
+    indices := []u32{
+        0, 1, 2, 2, 3, 0,       // Avant
+        4, 5, 6, 6, 7, 4,       // Arrière
+        3, 2, 7, 7, 6, 3,       // Haut
+        1, 0, 5, 5, 4, 1,       // Bas
+        5, 0, 3, 3, 6, 5,       // Gauche
+        1, 4, 7, 7, 2, 1,       // Droite
+    }
+
+    // A. Vertex Buffer
+    mesh.vertex_count = u32(len(vertices))
+    v_size := u32(len(vertices) * size_of(GpuVertex))
+    
+    mesh.vertex_buffer = sdl.CreateGPUBuffer(conx.device.device, {
+        usage = {.VERTEX},
+        size  = v_size,
+    })
+    uploadto_gpubuffer(conx, mesh.vertex_buffer, raw_data(vertices), v_size)
+
+    // B. Index Buffer
+    mesh.index_count = u32(len(indices))
+    i_size := u32(len(indices) * size_of(u32))
+    
+    mesh.index_buffer = sdl.CreateGPUBuffer(conx.device.device, {
+        usage = {.INDEX},
+        size  = i_size,
+    })
+    uploadto_gpubuffer(conx, mesh.index_buffer, raw_data(indices), i_size)
+
+    return
+}
+
+uploadto_gpubuffer      :: proc (conx: ^Context, gpubuffer: ^sdl.GPUBuffer, buffer: rawptr, bytesize: u32) {
+    assert(buffer != nil)
+
+    transfer_buffer: ^sdl.GPUTransferBuffer = sdl.CreateGPUTransferBuffer(conx.device.device, sdl.GPUTransferBufferCreateInfo{
+        usage       = .UPLOAD,
+        size        = bytesize,
+    })
+    defer sdl.ReleaseGPUTransferBuffer(conx.device.device, transfer_buffer)
+
+    tadress: rawptr = sdl.MapGPUTransferBuffer(conx.device.device, transfer_buffer, true)
+    mem.copy(tadress, buffer, int(bytesize))
+    sdl.UnmapGPUTransferBuffer(conx.device.device, transfer_buffer)
+
+
+    command: ^sdl.GPUCommandBuffer = sdl.AcquireGPUCommandBuffer(conx.device.device)
+
+    copypass: ^sdl.GPUCopyPass = sdl.BeginGPUCopyPass(command)
+    sdl.UploadToGPUBuffer(copypass, sdl.GPUTransferBufferLocation{
+        transfer_buffer     = transfer_buffer,
+        offset              = u32(0)
+    }, sdl.GPUBufferRegion{
+        buffer              = gpubuffer,
+        offset              = u32(0),
+        size                = bytesize,
+    }, true)
+    sdl.EndGPUCopyPass(copypass)
+
+    _= sdl.SubmitGPUCommandBuffer(command) 
+}
+
+uploadto_gputexture     :: proc (conx: ^Context, gputexture: ^sdl.GPUTexture, #by_ptr image_desc: ImageDesc) {
+    assert(image_desc.list_pixels != nil)
+
+    transfer_buffer: ^sdl.GPUTransferBuffer = sdl.CreateGPUTransferBuffer(conx.device.device, sdl.GPUTransferBufferCreateInfo{
+        usage       = .UPLOAD,
+        size        = image_desc.bytesize,
+    })
+    defer sdl.ReleaseGPUTransferBuffer(conx.device.device, transfer_buffer)
+
+    tadress: rawptr = sdl.MapGPUTransferBuffer(conx.device.device, transfer_buffer, true)
+    mem.copy(tadress, image_desc.list_pixels, int(image_desc.bytesize))
+    sdl.UnmapGPUTransferBuffer(conx.device.device, transfer_buffer)
+
+
+    command: ^sdl.GPUCommandBuffer = sdl.AcquireGPUCommandBuffer(conx.device.device)
+
+    copypass: ^sdl.GPUCopyPass = sdl.BeginGPUCopyPass(command)
+    sdl.UploadToGPUTexture(copypass, sdl.GPUTextureTransferInfo{
+        transfer_buffer     = transfer_buffer,
+        pixels_per_row      = u32(image_desc.size.x)
+    }, sdl.GPUTextureRegion{
+        texture             = gputexture,
+        w                   = u32(image_desc.size.x),
+        h                   = u32(image_desc.size.y),
+        d                   = u32(1),
+    }, true)
+    sdl.EndGPUCopyPass(copypass)
+
+    _= sdl.SubmitGPUCommandBuffer(command) 
+}
+
 create_gputexture       :: proc (conx: ^Context, texinfo: ^GpuTextureInfo) {
     texinfo.texture = sdl.CreateGPUTexture(conx.device.device, sdl.GPUTextureCreateInfo{
         type                    = texinfo.type,
@@ -234,6 +388,20 @@ create_gputexture       :: proc (conx: ^Context, texinfo: ^GpuTextureInfo) {
         layer_count_or_depth    = texinfo.layer_count,
         num_levels              = texinfo.num_levels,
     })
+}
+
+crt_gputexr_sampler     :: proc (conx: ^Context, #by_ptr image_desc: ImageDesc) -> (gputexture: ^sdl.GPUTexture) {
+    gputexture = sdl.CreateGPUTexture(conx.device.device, sdl.GPUTextureCreateInfo{
+        type = .D2,
+        format = .R8G8B8A8_UNORM,
+        usage = {.SAMPLER},
+        width = u32(image_desc.size.x),
+        height = u32(image_desc.size.y),
+        layer_count_or_depth = 1,
+        num_levels = 1,
+    })
+
+    return
 }
 
 create_depthtexture     :: proc (conx: ^Context) {
@@ -395,4 +563,29 @@ create_vinput_state     :: proc () -> (sdl.GPUVertexBufferDescription, sdl.GPUVe
     }
 
     return vbuffer_desc, vattrib_pos, vattrib_tex
+}
+
+load_image :: proc(file_path: cstring, desired_channels: i32 = 4, flip: bool = false) -> (img: ImageDesc) {
+    // Configuration de l'axe Y
+    stbimg.set_flip_vertically_on_load(i32(flip))
+
+    width, height, original_channels: i32
+    
+    // Chargement via STB
+    data := stbimg.load(file_path, &width, &height, &original_channels, desired_channels)
+
+    if data == nil {
+        // Remplacement de fmt : on utilise sdl.Log
+        // %s attend une cstring, ce qui est parfait car file_path est déjà une cstring
+        sdl.Log("ERREUR: Echec du chargement de la texture : %s", file_path)
+        return {}
+    }
+
+    img.list_pixels = data
+    img.size        = {width, height}
+    img.channels    = desired_channels
+    img.bytesize    = u32(width * height * desired_channels)
+    img.pixel_count = u32(width * height)
+
+    return img
 }

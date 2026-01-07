@@ -1,3 +1,5 @@
+// file : posonly.hlsl
+
 struct Input {
     float3 pos : TEXCOORD0;
     float2 tex : TEXCOORD1;

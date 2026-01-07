@@ -1,4 +1,4 @@
-// model.odin
+// file : model.odin
 
 package main
 
@@ -11,11 +11,13 @@ main :: proc () {
     conx: Context
     conxptr: ^Context = &conx
 
+    begin_test(conxptr)
     {
         init_sdl                    (conxptr)
         create_window               (conxptr)
         create_device               (conxptr)
         create_gpipeline            (conxptr)
+        create_gpumeshs             (conxptr)
         init_cam                    (conxptr)
         begin_gameloop              (conxptr)
     }
@@ -28,6 +30,7 @@ Context         :: struct {
     window:         WindowInfo,
     device:         GpuDeviceInfo,
     gpipeline:      GpuPipelineInfo,
+    meshmap:        GpuMesh_map,
 }
 
 WindowInfo      :: struct {
@@ -74,9 +77,22 @@ GpuVertex       :: struct {
     tex:    [2]f32,
 }
 
-GpuBufferRep    :: struct {
-    gpu_buffer_v:       ^sdl.GPUBuffer,
-    gpu_buffer_i:       ^sdl.GPUBuffer,
+GpuMesh         :: struct {
+    // Vertex Data
+    vertex_buffer:  ^sdl.GPUBuffer,
+    vertex_count:   u32,            // Indispensable pour sdl.DrawGPUPrimitives
+
+    // Index Data (Optionnel, si tu utilises des indices)
+    index_buffer:   ^sdl.GPUBuffer,
+    index_count:    u32,            // Indispensable pour sdl.DrawGPUIndexedPrimitives
+
+    // Material / Texture
+    texture:        ^sdl.GPUTexture,
+    sampler:        ^sdl.GPUSampler, // Souvent nécessaire avec la texture
+}
+
+GpuMesh_map     :: struct {
+    mesh_map:       map[string]GpuMesh
 }
 
 vUniform_cam    :: struct {
@@ -97,6 +113,14 @@ GpuTextureInfo  :: struct {
     height:         u32,
     layer_count:    u32,
     num_levels:     u32,
+}
+
+ImageDesc       :: struct {
+    list_pixels:        [^]byte,
+    size:               [2]i32,
+    channels:           i32,
+    bytesize:           u32,
+    pixel_count:        u32,
 }
 
 GpuCamera       :: struct {
