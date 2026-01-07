@@ -69,19 +69,14 @@ DrawContext     :: struct {
     render_pass:            ^sdl.GPURenderPass,
 }
 
+GpuVertex       :: struct {
+    pos:    [3]f32,
+    tex:    [2]f32,
+}
+
 GpuBufferRep    :: struct {
     gpu_buffer_v:       ^sdl.GPUBuffer,
     gpu_buffer_i:       ^sdl.GPUBuffer,
-}
-
-MeshPC          :: struct {
-    vertices:       []Vertex_PC,
-    indices:        []u32,
-}
-
-MeshPT          :: struct {
-    vertices:       []Vertex_PT,
-    indices:        []u32,
 }
 
 vUniform_cam    :: struct {
@@ -119,20 +114,6 @@ GpuCamera       :: struct {
     near:           f32,
     far:            f32,
     uniform:        vUniform_cam,
-}
-
-Vertex_P    :: struct {
-    pos:            [3]f32
-}
-
-Vertex_PC   :: struct {
-    pos:            [3]f32,
-    col:            [3]f32,
-}
-
-Vertex_PT   :: struct {
-    pos:            [3]f32,
-    tex:            [2]f32,
 }
 
 MouseMode   :: enum {

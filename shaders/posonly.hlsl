@@ -1,9 +1,11 @@
 struct Input {
+    float3 pos : TEXCOORD0;
+    float2 tex : TEXCOORD1;
     uint index : SV_VertexID;
 };
 
 struct Output {
-    float4 col : TEXCOORD0;
+    float2 tex : TEXCOORD0;
     float4 pos : SV_Position;
 };
 
@@ -16,53 +18,18 @@ cbuffer vUniform_mdl : register(b1, space1) {
     float4x4 model;
 };
 
-
-
 Output vmain (Input ip) {
     Output op;
 
-    static const float3 vertices[36] = 
-    {
-        // FACE AVANT (Z = -1)
-        float3(-1, -1, -1), float3( 1, -1, -1), float3( 1,  1, -1),
-        float3(-1, -1, -1), float3( 1,  1, -1), float3(-1,  1, -1),
-
-        // FACE ARRIERE (Z = +1)
-        float3( 1, -1,  1), float3(-1, -1,  1), float3(-1,  1,  1),
-        float3( 1, -1,  1), float3(-1,  1,  1), float3( 1,  1,  1),
-
-        // FACE GAUCHE (X = -1)
-        float3(-1, -1,  1), float3(-1, -1, -1), float3(-1,  1, -1),
-        float3(-1, -1,  1), float3(-1,  1, -1), float3(-1,  1,  1),
-
-        // FACE DROITE (X = +1)
-        float3( 1, -1, -1), float3( 1, -1,  1), float3( 1,  1,  1),
-        float3( 1, -1, -1), float3( 1,  1,  1), float3( 1,  1, -1),
-
-        // FACE HAUT (Y = +1)
-        float3(-1,  1, -1), float3( 1,  1, -1), float3( 1,  1,  1),
-        float3(-1,  1, -1), float3( 1,  1,  1), float3(-1,  1,  1),
-
-        // FACE BAS (Y = -1)
-        float3(-1, -1,  1), float3( 1, -1,  1), float3( 1, -1, -1),
-        float3(-1, -1,  1), float3( 1, -1, -1), float3(-1, -1, -1)
-    };
-    static const float4 faceColors[6] = 
-    {
-        float4(1.0, 0.0, 0.0, 1.0), // Face 0 (Avant)  - Rouge
-        float4(0.0, 1.0, 0.0, 1.0), // Face 1 (Arrière)- Vert
-        float4(0.0, 0.0, 1.0, 1.0), // Face 2 (Gauche) - Bleu
-        float4(1.0, 1.0, 0.0, 1.0), // Face 3 (Droite) - Jaune
-        float4(0.0, 1.0, 1.0, 1.0), // Face 4 (Haut)   - Cyan
-        float4(1.0, 0.0, 1.0, 1.0)  // Face 5 (Bas)    - Magenta
-    };
-
-    op.pos = mul(projection, mul(view, mul(model, float4(vertices[ip.index], 1.0))));
-    op.col = faceColors[int(ip.index/6)];
+    op.pos = mul(projection, mul(view, mul(model, float4(ip.pos, 1.0))));
+    op.tex = float2(ip.tex);
 
     return op;
 }
 
-float4 pmain (float4 col : TEXCOORD0) : SV_Target0 {
-    return float4(col);
+Texture2D    my_texture : register(t0, space2);
+SamplerState my_sampler : register(s0, space2);
+
+float4 pmain (float2 tex : TEXCOORD0) : SV_Target0 {
+    return my_texture.Sample(my_sampler, tex);
 }

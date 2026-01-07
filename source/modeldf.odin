@@ -17,7 +17,7 @@ init_sdl            :: proc (conx: ^Context, init_flags: sdl.InitFlags = {.VIDEO
 
 create_window       :: proc (conx: ^Context) {
     conx.window.title   = cstring("mouha window")
-    conx.window.size    = {1400, 890}
+    conx.window.size    = {800, 580}
     conx.window.aspect  = f32(conx.window.size.x) / f32(conx.window.size.y)
     conx.window.midle   = {conx.window.size.x/2, conx.window.size.y/2}
 
@@ -73,11 +73,28 @@ create_gpipeline    :: proc (conx: ^Context) {
         compare_op          = .LESS,  // Si Z < Z_actuel (plus proche), on dessine
     }
 
+    vbuffer_desc:   sdl.GPUVertexBufferDescription
+    vattribs_pos:   sdl.GPUVertexAttribute
+    vattribs_tex:   sdl.GPUVertexAttribute
+
+    vbuffer_desc, vattribs_pos, vattribs_tex = create_vinput_state()
+
+    list_vbuffer_descs:     []sdl.GPUVertexBufferDescription = {vbuffer_desc}
+    list_vattribs:          []sdl.GPUVertexAttribute         = {vattribs_pos, vattribs_tex}
+
+    vertex_input_state := sdl.GPUVertexInputState{
+        vertex_buffer_descriptions      = raw_data  (list_vbuffer_descs),
+        num_vertex_buffers              = u32(len   (list_vbuffer_descs)),
+        vertex_attributes               = raw_data  (list_vattribs),
+        num_vertex_attributes           = u32(len   (list_vattribs)),
+    }
+
     gpipeline_info: sdl.GPUGraphicsPipelineCreateInfo = {
         vertex_shader               = vshader,
         fragment_shader             = fshader,
         target_info                 = target_info,
         depth_stencil_state         = depth_state,
+        vertex_input_state          = vertex_input_state,
     }
 
     conx.gpipeline.pipeline = sdl.CreateGPUGraphicsPipeline(conx.device.device, gpipeline_info)
@@ -151,21 +168,9 @@ begin_gameloop      :: proc (conx: ^Context) {
         update_context(conx)
 
         drawconx := begin_drawing(conx); {
+            
             sdl.PushGPUVertexUniformData(drawconx.command_buffer, 0, &conx.cam.uniform, size_of(vUniform_cam))
-
             vunif_mdl.model = ln.matrix4_translate_f32({0, 0, 0}) * ln.matrix4_rotate_f32(f32(conx.time.time_s), {3, 241, 241})
-            sdl.PushGPUVertexUniformData(drawconx.command_buffer, 1, &vunif_mdl, size_of(vunif_mdl))
-            sdl.DrawGPUPrimitives(drawconx.render_pass, 36, 1, 0, 0)
-
-            vunif_mdl.model = ln.matrix4_translate_f32({0, 4, 0}) * ln.matrix4_rotate_f32(f32(conx.time.time_s), {2, 50, 241})
-            sdl.PushGPUVertexUniformData(drawconx.command_buffer, 1, &vunif_mdl, size_of(vunif_mdl))
-            sdl.DrawGPUPrimitives(drawconx.render_pass, 36, 1, 0, 0)
-
-            vunif_mdl.model = ln.matrix4_translate_f32({0, 0, 3}) * ln.matrix4_rotate_f32(f32(conx.time.time_s), {35, 57, 1244})
-            sdl.PushGPUVertexUniformData(drawconx.command_buffer, 1, &vunif_mdl, size_of(vunif_mdl))
-            sdl.DrawGPUPrimitives(drawconx.render_pass, 36, 1, 0, 0)
-
-            vunif_mdl.model = ln.matrix4_translate_f32({5, 0, 0}) * ln.matrix4_rotate_f32(f32(0), {243, 52, 15})
             sdl.PushGPUVertexUniformData(drawconx.command_buffer, 1, &vunif_mdl, size_of(vunif_mdl))
             sdl.DrawGPUPrimitives(drawconx.render_pass, 36, 1, 0, 0)
 
@@ -207,7 +212,7 @@ create_shaders          :: proc (conx: ^Context) -> (vshader: ^sdl.GPUShader, fs
         entrypoint                      = fentry_point,
         format                          = conx.device.format_flags,
         stage                           = .FRAGMENT,
-        num_samplers                    = 0,
+        num_samplers                    = 1,
         num_storage_buffers             = 0,
         num_storage_textures            = 0,
         num_uniform_buffers             = 0,
@@ -366,4 +371,28 @@ update_cam              :: proc (conx: ^Context) {
         far                     = conx.cam.far,
         flip_z_axis             = true,
     )
+}
+
+create_vinput_state     :: proc () -> (sdl.GPUVertexBufferDescription, sdl.GPUVertexAttribute, sdl.GPUVertexAttribute) {
+    vbuffer_desc: sdl.GPUVertexBufferDescription = {
+        slot            = 0,
+        pitch           = size_of(GpuVertex),
+        input_rate      = .VERTEX
+    }
+
+    vattrib_pos: sdl.GPUVertexAttribute = {
+        location        = 0,
+        buffer_slot     = 0,
+        format          = .FLOAT3,
+        offset          = u32(offset_of(GpuVertex, pos))
+    }
+
+    vattrib_tex: sdl.GPUVertexAttribute = {
+        location        = 1,
+        buffer_slot     = 0,
+        format          = .FLOAT2,
+        offset          = u32(offset_of(GpuVertex, tex))
+    }
+
+    return vbuffer_desc, vattrib_pos, vattrib_tex
 }
