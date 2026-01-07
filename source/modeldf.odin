@@ -20,7 +20,7 @@ init_sdl                :: proc (conx: ^Context, init_flags: sdl.InitFlags = {.V
 
 create_window           :: proc (conx: ^Context) {
     conx.window.title   = cstring("mouha window")
-    conx.window.size    = {800, 580}
+    conx.window.size    = {1000, 800}
     conx.window.aspect  = f32(conx.window.size.x) / f32(conx.window.size.y)
     conx.window.midle   = {conx.window.size.x/2, conx.window.size.y/2}
 
@@ -55,8 +55,14 @@ create_device           :: proc (conx: ^Context) {
 create_gpipeline        :: proc (conx: ^Context) {
     create_depthtexture(conx)
 
-    conx.gpipeline.vshad_code_path = cstring("shaders/compiled_spirv/posonly.vert.spirv")
-    conx.gpipeline.fshad_code_path = cstring("shaders/compiled_spirv/posonly.pixl.spirv")
+    switch conx.device.format_flags {
+        case {.SPIRV} :
+            conx.gpipeline.vshad_code_path = cstring("shaders/compiled_spirv/posonly.vert.spirv")
+            conx.gpipeline.fshad_code_path = cstring("shaders/compiled_spirv/posonly.pixl.spirv")
+        case {.DXIL} :
+            conx.gpipeline.vshad_code_path = cstring("shaders/compiled_dxil/posonly.vert.dxil")
+            conx.gpipeline.fshad_code_path = cstring("shaders/compiled_dxil/posonly.pixl.dxil")
+    }
 
     vshader, fshader := create_shaders(conx)
 
@@ -98,6 +104,8 @@ create_gpipeline        :: proc (conx: ^Context) {
         front_face = .COUNTER_CLOCKWISE
     }
 
+    primitive_type: sdl.GPUPrimitiveType = .TRIANGLELIST
+
     gpipeline_info: sdl.GPUGraphicsPipelineCreateInfo = {
         vertex_shader               = vshader,
         fragment_shader             = fshader,
@@ -105,6 +113,7 @@ create_gpipeline        :: proc (conx: ^Context) {
         depth_stencil_state         = depth_state,
         vertex_input_state          = vertex_input_state,
         rasterizer_state            = rasterizer_state,
+        primitive_type              = primitive_type,
     }
 
     conx.gpipeline.pipeline = sdl.CreateGPUGraphicsPipeline(conx.device.device, gpipeline_info)
@@ -186,23 +195,33 @@ begin_gameloop          :: proc (conx: ^Context) {
 
             sdl.PushGPUVertexUniformData(drawconx.command_buffer, 0, &conx.cam.uniform, size_of(vUniform_cam))
 
-            vunif_mdl.model = ln.matrix4_translate_f32({0, 0, 0})
+            vunif_mdl.model = ln.matrix4_translate_f32({0, 3, 0})
             draw_gpumesh(&drawconx, &conx.meshmap.mesh_map["cube"], &vunif_mdl)
 
-            vunif_mdl.model = ln.matrix4_translate_f32({1, 0, 0})
+            vunif_mdl.model = ln.matrix4_translate_f32({3, 0, 0})
             draw_gpumesh(&drawconx, &conx.meshmap.mesh_map["cone-flat"], &vunif_mdl)
 
-            vunif_mdl.model = ln.matrix4_translate_f32({2, 0, 0})
+            vunif_mdl.model = ln.matrix4_translate_f32({4, 0, 0})
             draw_gpumesh(&drawconx, &conx.meshmap.mesh_map["taxi"], &vunif_mdl)
 
-            vunif_mdl.model = ln.matrix4_translate_f32({3, 0, 0})
+            vunif_mdl.model = ln.matrix4_translate_f32({0, 0, 0})
             draw_gpumesh(&drawconx, &conx.meshmap.mesh_map["van"], &vunif_mdl)
+
+            time_rotate_z:= ln.matrix4_rotate_f32(f32(conx.time.time_s), {1, 0, 0})
+
+            vunif_mdl.model = ln.matrix4_translate_f32({-0.4, .1, 0.65}) * time_rotate_z
+            draw_gpumesh(&drawconx, &conx.meshmap.mesh_map["taxi"], &vunif_mdl)
+            vunif_mdl.model = ln.matrix4_translate_f32({0.4, .1, 0.65}) * ln.matrix4_rotate_f32(ln.PI, {0, 1, 0}) * ln.matrix4_inverse_f32(time_rotate_z) 
+            draw_gpumesh(&drawconx, &conx.meshmap.mesh_map["taxi"], &vunif_mdl)
+
+            vunif_mdl.model = ln.matrix4_translate_f32({-0.4, .1, -0.85}) * time_rotate_z
+            draw_gpumesh(&drawconx, &conx.meshmap.mesh_map["taxi"], &vunif_mdl)
+            vunif_mdl.model = ln.matrix4_translate_f32({0.4, .1, -0.85}) * ln.matrix4_rotate_f32(ln.PI, {0, 1, 0}) * ln.matrix4_inverse_f32(time_rotate_z) 
+            draw_gpumesh(&drawconx, &conx.meshmap.mesh_map["taxi"], &vunif_mdl)
 
         }; end_drawing(conx, drawconx)
     }
 }
-
-begin_test :: proc (conx: ^Context) {}
 
 
 

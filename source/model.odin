@@ -11,7 +11,6 @@ main :: proc () {
     conx: Context
     conxptr: ^Context = &conx
 
-    begin_test(conxptr)
     {
         init_sdl                    (conxptr)
         create_window               (conxptr)
@@ -145,7 +144,7 @@ GpuCamera       :: struct {
     uniform:        vUniform_cam,
 }
 
-MouseMode   :: enum {
+MouseMode       :: enum   {
     ui,
     fps,
 }
