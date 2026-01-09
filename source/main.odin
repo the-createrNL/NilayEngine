@@ -1,4 +1,4 @@
-// file : model.odin
+// file : main.odin
 
 package main
 
