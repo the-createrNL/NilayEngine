@@ -120,10 +120,12 @@ create_gpipeline        :: proc (conx: ^Context) {
 }
 
 create_gpumeshs         :: proc (conx: ^Context) {
+    conx.meshmap.mesh_map["char"] = load_mesh(conx, "assets/glb_mini/character-female-c.glb", "assets/glb_mini/Textures/colormap.png")
     conx.meshmap.mesh_map["cube"] = load_mesh(conx, "assets/glb_cars/box.glb", "assets/glb_cars/Textures/colormap.png")
     conx.meshmap.mesh_map["cone-flat"] = load_mesh(conx, "assets/glb_cars/cone-flat.glb", "assets/glb_cars/Textures/colormap.png")
     conx.meshmap.mesh_map["taxi"] = load_mesh(conx, "assets/glb_cars/taxi.glb", "assets/glb_cars/Textures/colormap.png")
     conx.meshmap.mesh_map["van"] = load_mesh(conx, "assets/glb_cars/van.glb", "assets/glb_cars/Textures/colormap.png")
+    conx.meshmap.mesh_map["coin"] = load_mesh(conx, "assets/glb_dng/coin.glb", "assets/glb_dng/Textures/colormap.png")
 }
 
 begin_drawing           :: proc (conx: ^Context) -> DrawContext {
@@ -219,7 +221,15 @@ begin_gameloop          :: proc (conx: ^Context) {
             vunif_mdl.model = ln.matrix4_translate_f32({0.4, .1, -0.85}) * ln.matrix4_rotate_f32(ln.PI, {0, 1, 0}) * ln.matrix4_inverse_f32(time_rotate_z) 
             draw_gpumesh(&drawconx, &conx.meshmap.mesh_map["taxi"], &vunif_mdl)
 
+            vunif_mdl.model = ln.matrix4_translate_f32({0, 2, 0})
+            draw_gpumesh(&drawconx, &conx.meshmap.mesh_map["char"], &vunif_mdl)
+
+            vunif_mdl.model = ln.matrix4_translate_f32({0, -2, 0}) * 
+            ln.matrix4_translate_f32({0, ln.cos(f32(conx.time.time_s*2))/6, 0}) * ln.matrix4_rotate_f32(f32(conx.time.time_s*2), {0, 1, 0})
+            draw_gpumesh(&drawconx, &conx.meshmap.mesh_map["coin"], &vunif_mdl)
+
         }; end_drawing(conx, drawconx)
+        sdl.Delay(8)
     }
 }
 
