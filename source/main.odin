@@ -74,6 +74,7 @@ DrawContext     :: struct {
 GpuVertex       :: struct {
     pos:    [3]f32,
     tex:    [2]f32,
+    nor:    [3]f32,
 }
 
 MeshData        :: struct {

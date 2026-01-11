@@ -85,11 +85,12 @@ create_gpipeline        :: proc (conx: ^Context) {
     vbuffer_desc:   sdl.GPUVertexBufferDescription
     vattribs_pos:   sdl.GPUVertexAttribute
     vattribs_tex:   sdl.GPUVertexAttribute
+    vattribs_nor:   sdl.GPUVertexAttribute
 
-    vbuffer_desc, vattribs_pos, vattribs_tex = create_vinput_state()
+    vbuffer_desc, vattribs_pos, vattribs_tex, vattribs_nor = create_vinput_state()
 
     list_vbuffer_descs:     []sdl.GPUVertexBufferDescription = {vbuffer_desc}
-    list_vattribs:          []sdl.GPUVertexAttribute         = {vattribs_pos, vattribs_tex}
+    list_vattribs:          []sdl.GPUVertexAttribute         = {vattribs_pos, vattribs_tex, vattribs_nor}
 
     vertex_input_state := sdl.GPUVertexInputState{
         vertex_buffer_descriptions      = raw_data  (list_vbuffer_descs),
@@ -120,7 +121,8 @@ create_gpipeline        :: proc (conx: ^Context) {
 }
 
 create_gpumeshs         :: proc (conx: ^Context) {
-    //conx.meshmap.mesh_map["coin"] = load_mesh(conx, "assets/glb_dng/coin.glb", "assets/glb_dng/Textures/colormap.png")
+    conx.meshmap.mesh_map["box"] = load_mesh(conx, "assets/car/box.glb", "assets/car/Textures/colormap.png")
+    conx.meshmap.mesh_map["big-red-car-flat"] = load_mesh(conx, "assets/car/delivery-flat.glb", "assets/car/Textures/colormap.png")
 }
 
 begin_drawing           :: proc (conx: ^Context) -> DrawContext {
@@ -192,8 +194,11 @@ begin_gameloop          :: proc (conx: ^Context) {
 
             sdl.PushGPUVertexUniformData(drawconx.command_buffer, 0, &conx.cam.uniform, size_of(vUniform_cam))
 
-            //vunif_mdl.model = ln.matrix4_translate_f32({0, ln.cos(f32(conx.time.time_s*2))/6, 0}) * ln.matrix4_rotate_f32(f32(conx.time.time_s*2), {0, 1, 0})
-            //draw_gpumesh(&drawconx, &conx.meshmap.mesh_map["coin"], &vunif_mdl)
+            vunif_mdl.model = ln.matrix4_translate_f32({0, ln.cos(f32(conx.time.time_s*2))/6, 0}) * ln.matrix4_rotate_f32(f32(conx.time.time_s*2), {0, 1, 0})
+            draw_gpumesh(&drawconx, &conx.meshmap.mesh_map["box"], &vunif_mdl)
+
+            vunif_mdl.model = ln.matrix4_translate_f32({2, 0, 0}) * ln.matrix4_rotate_f32(f32(conx.time.time_s/2), {0, 1, 0})
+            draw_gpumesh(&drawconx, &conx.meshmap.mesh_map["big-red-car-flat"], &vunif_mdl)
 
         }; end_drawing(conx, drawconx)
         sdl.Delay(8)
@@ -539,7 +544,7 @@ update_cam              :: proc (conx: ^Context) {
     )
 }
 
-create_vinput_state     :: proc () -> (sdl.GPUVertexBufferDescription, sdl.GPUVertexAttribute, sdl.GPUVertexAttribute) {
+create_vinput_state     :: proc () -> (sdl.GPUVertexBufferDescription, sdl.GPUVertexAttribute, sdl.GPUVertexAttribute, sdl.GPUVertexAttribute) {
     vbuffer_desc: sdl.GPUVertexBufferDescription = {
         slot            = 0,
         pitch           = size_of(GpuVertex),
@@ -560,7 +565,14 @@ create_vinput_state     :: proc () -> (sdl.GPUVertexBufferDescription, sdl.GPUVe
         offset          = u32(offset_of(GpuVertex, tex))
     }
 
-    return vbuffer_desc, vattrib_pos, vattrib_tex
+    vattrib_nor: sdl.GPUVertexAttribute = {
+        location        = 2,
+        buffer_slot     = 0,
+        format          = .FLOAT3,
+        offset          = u32(offset_of(GpuVertex, nor))
+    }
+
+    return vbuffer_desc, vattrib_pos, vattrib_tex, vattrib_nor
 }
 
 load_vertices :: proc(file_path: cstring) -> (mesh_data: MeshData) {
@@ -578,10 +590,13 @@ load_vertices :: proc(file_path: cstring) -> (mesh_data: MeshData) {
         return
     }
 
+    log.debug("num meshes", file_path, len(data.meshes))
+    log.debug("num prims of meshe 0", file_path, len(data.meshes[0].primitives))
     primitive := data.meshes[0].primitives[0]
     
     pos_acc: ^cgltf.accessor
     tex_acc: ^cgltf.accessor
+    nor_acc: ^cgltf.accessor
     idx_acc: ^cgltf.accessor = primitive.indices
 
     // CORRECTION 1 : On itère directement sur le slice 'attributes'
@@ -589,10 +604,12 @@ load_vertices :: proc(file_path: cstring) -> (mesh_data: MeshData) {
     for attrib in primitive.attributes {
         if attrib.type == .position do pos_acc = attrib.data
         if attrib.type == .texcoord do tex_acc = attrib.data
+        if attrib.type == .normal   do nor_acc = attrib.data
     }
 
     assert(pos_acc != nil, "Manque Position")
     assert(idx_acc != nil, "Manque Index")
+    assert(nor_acc != nil, "Manque Normale")
 
     count_v := int(pos_acc.count)
     count_i := int(idx_acc.count)
@@ -602,9 +619,13 @@ load_vertices :: proc(file_path: cstring) -> (mesh_data: MeshData) {
 
     for i in 0..<count_v {
         p: [3]f32
-        // CORRECTION 2 : On ignore le retour booléen avec '_ ='
+        n: [3]f32
+        
         _ = cgltf.accessor_read_float(pos_acc, uint(i), &p[0], 3)
         mesh_data.vertices[i].pos = p
+
+        _ = cgltf.accessor_read_float(nor_acc, uint(i), &n[0], 3)
+        mesh_data.vertices[i].nor = n
 
         if tex_acc != nil {
             t: [2]f32
